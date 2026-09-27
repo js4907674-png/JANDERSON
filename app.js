@@ -72,11 +72,28 @@ const INITIAL = {
   annualRentability: 0.083143
 };
 
+const STORAGE_KEY = "jm_financial_data_v1";
+const PRIVACY_KEY = "jm_privacy_mode";
+let isPrivacyMode = localStorage.getItem(PRIVACY_KEY) === "true";
+
 let data = structuredClone(INITIAL);
-let selectedMonth = "9";
-let selectedYear = "2026";
+try {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    const parsed = JSON.parse(saved);
+    if (parsed && parsed.period && parsed.history) {
+      data = parsed;
+    }
+  }
+} catch (e) {
+  console.warn("Erro ao carregar dados salvos:", e);
+}
+
+let selectedMonth = data?.period ? String(Number(data.period.slice(5, 7))) : "9";
+let selectedYear = data?.period ? data.period.slice(0, 4) : "2026";
 let selectedType = "all";
 let selectedCategory = "all";
+let selectedStatus = "all";
 let redrawRetirementChart = null;
 let cashflowHoverIdx = -1;
 let cashflowBars = [];
@@ -84,7 +101,11 @@ let cashflowBars = [];
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
-const money = n => n == null || !Number.isFinite(Number(n)) ? "Dados não disponíveis" : Number(n).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const money = n => {
+  if (n == null || !Number.isFinite(Number(n))) return "Dados não disponíveis";
+  if (isPrivacyMode) return "R$ ••••••";
+  return Number(n).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+};
 const pct = n => n == null || !Number.isFinite(Number(n)) ? "Dados não disponíveis" : (Number(n) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
 const val = (n, suffix = "") => n == null || !Number.isFinite(Number(n)) ? "Dados não disponíveis" : Number(n).toLocaleString("pt-BR") + suffix;
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -172,7 +193,11 @@ function filtered() {
   return data.transactions.filter(t => {
     const matchesType = selectedType === "all" || t.type.toLowerCase().includes(selectedType);
     const matchesCat = selectedCategory === "all" || t.category === selectedCategory;
-    if (!matchesType || !matchesCat) return false;
+    const tStatus = (t.status || '').toUpperCase();
+    const matchesStatus = (selectedStatus === "all") ||
+      (selectedStatus === "PENDENTE" && tStatus === "PENDENTE") ||
+      (selectedStatus === "RECEBIDO" && tStatus !== "PENDENTE");
+    if (!matchesType || !matchesCat || !matchesStatus) return false;
     if (!q) return true;
     return (
       (t.description && t.description.toLowerCase().includes(q)) ||
@@ -1141,6 +1166,7 @@ $('#excelFile').onchange = async e => {
   $('#uploadStatus').textContent = 'Lendo a planilha…';
   try {
     data = parseWorkbook(await f.arrayBuffer());
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     selectedYear = data.period.slice(0, 4);
     selectedMonth = String(Number(data.period.slice(5, 7)));
     selectedCategory = 'all';
@@ -1152,14 +1178,67 @@ $('#excelFile').onchange = async e => {
     $('#categoryFilter').innerHTML = '<option value="all">Todas</option>' + data.categories.map(c => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
     updatePeriod();
     renderAll();
-    $('#uploadStatus').textContent = `Planilha carregada com sucesso · ${data.updated}`;
+    $('#uploadStatus').textContent = `Planilha carregada e salva localmente · ${data.updated}`;
     $('#settingsModal').classList.remove('open');
-    showToast('Planilha sincronizada e atualizada com sucesso!', 'success');
+    showToast('Planilha sincronizada e salva no navegador com sucesso!', 'success');
   } catch (err) {
     $('#uploadStatus').textContent = err.message;
     showToast(err.message, 'error');
   }
 };
+
+function updatePrivacyUI() {
+  const btn = $('#privacyBtn');
+  if (btn) {
+    btn.textContent = isPrivacyMode ? '🔒' : '👁';
+    btn.classList.toggle('active', isPrivacyMode);
+    btn.title = isPrivacyMode ? 'Modo privacidade ativo (clique para exibir valores)' : 'Modo privacidade desativado (clique para ocultar valores)';
+  }
+}
+
+const privBtn = $('#privacyBtn');
+if (privBtn) {
+  privBtn.onclick = () => {
+    isPrivacyMode = !isPrivacyMode;
+    localStorage.setItem(PRIVACY_KEY, isPrivacyMode);
+    updatePrivacyUI();
+    renderAll();
+    showToast(isPrivacyMode ? 'Modo privacidade ativado: valores ocultados' : 'Modo privacidade desativado: valores visíveis', 'info');
+  };
+}
+
+const statusSelect = $('#statusFilter');
+if (statusSelect) {
+  statusSelect.onchange = e => {
+    selectedStatus = e.target.value;
+    renderControl();
+  };
+}
+
+const resetBtn = $('#resetDataBtn');
+if (resetBtn) {
+  resetBtn.onclick = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    data = structuredClone(INITIAL);
+    selectedYear = data.period.slice(0, 4);
+    selectedMonth = String(Number(data.period.slice(5, 7)));
+    selectedCategory = 'all';
+    selectedType = 'all';
+    selectedStatus = 'all';
+    if ($('#statusFilter')) $('#statusFilter').value = 'all';
+    if ($('#txSearch')) $('#txSearch').value = '';
+    const years = [...new Set([Number(data.period.slice(0, 4)), data.historyYears.income, data.historyYears.expenses])].sort((a, b) => a - b);
+    $('#yearFilter').innerHTML = years.map(y => `<option value="${y}" ${y === Number(selectedYear) ? 'selected' : ''}>${y}</option>`).join('');
+    $('#yearFilter').value = selectedYear;
+    $('#monthFilter').innerHTML = monthLabels.map((m, i) => `<option value="${i + 1}" ${i + 1 === Number(selectedMonth) ? 'selected' : ''}>${m}</option>`).join('');
+    $('#monthFilter').value = selectedMonth;
+    $('#categoryFilter').innerHTML = '<option value="all">Todas</option>' + data.categories.map(c => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+    updatePeriod();
+    renderAll();
+    $('#settingsModal').classList.remove('open');
+    showToast('Dados restaurados para o padrão original da planilha.', 'info');
+  };
+}
 
 const searchInput = $('#txSearch');
 if (searchInput) {
@@ -1173,6 +1252,7 @@ window.addEventListener('resize', () => {
   }
 });
 
+updatePrivacyUI();
 renderAll();
 updatePeriod();
 pageFromHash();
