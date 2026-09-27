@@ -78,6 +78,8 @@ let selectedYear = "2026";
 let selectedType = "all";
 let selectedCategory = "all";
 let redrawRetirementChart = null;
+let cashflowHoverIdx = -1;
+let cashflowBars = [];
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -89,8 +91,97 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 
 const total = x => x.reduce((a, b) => a + (Number(b.value) || 0), 0);
 
+function showToast(message, type = 'info') {
+  const container = $('#toastContainer');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ';
+  toast.innerHTML = `<span style="font-weight:700;color:${type === 'success' ? 'var(--green)' : type === 'error' ? 'var(--coral)' : 'var(--blue-light)'}">${icon}</span><span>${esc(message)}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(10px)';
+    toast.style.transition = 'all 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, 3500);
+}
+
+function getOrCreateTooltip(chartWrap) {
+  let tip = chartWrap.querySelector('.chart-tooltip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.className = 'chart-tooltip';
+    chartWrap.appendChild(tip);
+  }
+  return tip;
+}
+
+function calculateHealthScore() {
+  const p = periodData();
+  let score = 50;
+  if (p.income && p.income > 0) {
+    const expenses = p.expenses || 0;
+    const contribution = p.contribution || 0;
+    const balance = p.income - expenses - contribution;
+
+    const savingRate = balance / p.income;
+    if (savingRate >= 0.20) score += 25;
+    else if (savingRate >= 0.10) score += 15;
+    else if (savingRate >= 0) score += 5;
+    else score -= 15;
+
+    const investRate = contribution / p.income;
+    if (investRate >= 0.20) score += 25;
+    else if (investRate >= 0.10) score += 18;
+    else if (investRate > 0) score += 10;
+
+    const expRate = expenses / p.income;
+    if (expRate <= 0.60) score += 20;
+    else if (expRate <= 0.80) score += 10;
+    else if (expRate > 1.0) score -= 20;
+
+    const cashShare = (data.assets.find(a => a.name === 'Caixa')?.share) || 0.22;
+    const cashMonths = expenses > 0 ? (data.portfolio * cashShare) / expenses : 0;
+    if (cashMonths >= 6) score += 15;
+    else if (cashMonths >= 3) score += 8;
+  }
+  return Math.min(100, Math.max(0, Math.round(score)));
+}
+
+function updateHealthScoreBadge() {
+  const scoreEl = $('#healthScore');
+  const dotEl = $('#scoreDot');
+  if (!scoreEl) return;
+  const score = calculateHealthScore();
+  let label = 'Excelente';
+  let color = 'var(--green)';
+  if (score < 40) { label = 'Atenção'; color = 'var(--coral)'; }
+  else if (score < 70) { label = 'Moderada'; color = 'var(--gold)'; }
+  else if (score < 85) { label = 'Boa'; color = '#82b9ff'; }
+
+  scoreEl.textContent = `${score}/100 (${label})`;
+  if (dotEl) {
+    dotEl.style.background = color;
+    dotEl.style.boxShadow = `0 0 6px ${color}`;
+  }
+}
+
 function filtered() {
-  return data.transactions.filter(t => (selectedType === "all" || t.type.toLowerCase().includes(selectedType)) && (selectedCategory === "all" || t.category === selectedCategory));
+  const q = ($('#txSearch')?.value || '').toLowerCase().trim();
+  return data.transactions.filter(t => {
+    const matchesType = selectedType === "all" || t.type.toLowerCase().includes(selectedType);
+    const matchesCat = selectedCategory === "all" || t.category === selectedCategory;
+    if (!matchesType || !matchesCat) return false;
+    if (!q) return true;
+    return (
+      (t.description && t.description.toLowerCase().includes(q)) ||
+      (t.category && t.category.toLowerCase().includes(q)) ||
+      (t.type && t.type.toLowerCase().includes(q)) ||
+      (t.status && t.status.toLowerCase().includes(q)) ||
+      String(t.value).includes(q)
+    );
+  });
 }
 
 function metric(icon, label, value, desc, color, comparison = 'Mês anterior: dados não disponíveis') {
@@ -225,6 +316,8 @@ function renderCategories() {
 function drawChart() {
   const canvas = $('#cashflowChart');
   if (!canvas) return;
+  const wrap = canvas.closest('.chart-wrap');
+  const tip = wrap ? getOrCreateTooltip(wrap) : null;
   const ctx = canvas.getContext('2d'), rect = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
   if (!rect.width || !rect.height) return;
   canvas.width = rect.width * dpr;
@@ -245,10 +338,12 @@ function drawChart() {
     ctx.textAlign = 'center';
     ctx.font = '12px DM Sans';
     ctx.fillText('Dados não disponíveis para este período', w / 2, h / 2);
+    if (tip) tip.classList.remove('visible');
     return;
   }
   const max = Math.max(1, ...finite) * 1.2;
   const colors = ['#81e0b2', '#ff8d83', '#82b9ff'];
+  const labels = ['Receita', 'Despesas', 'Aporte'];
   ctx.font = '10px DM Sans';
 
   for (let j = 0; j < 4; j++) {
@@ -264,21 +359,71 @@ function drawChart() {
   }
 
   const bw = Math.min(55, (w - pad.l - pad.r) / 6);
+  cashflowBars = [];
+
   vals.forEach((v, i) => {
     const x = pad.l + (w - pad.l - pad.r) * (i * 2 + 1) / 6 - bw / 2;
     ctx.textAlign = 'center';
     ctx.fillStyle = '#8a99a2';
-    ctx.fillText(['Receita', 'Despesas', 'Aporte'][i], x + bw / 2, h - 6);
+    ctx.fillText(labels[i], x + bw / 2, h - 6);
     if (v == null) return;
     const barh = (h - pad.t - pad.b) * v / max;
     const y = h - pad.b - barh;
+
+    const isHovered = (cashflowHoverIdx === i);
+    cashflowBars.push({ idx: i, x, y, w: bw, h: barh, label: labels[i], value: v, color: colors[i] });
+
     ctx.fillStyle = colors[i];
-    ctx.globalAlpha = 0.88;
+    ctx.globalAlpha = isHovered ? 1 : 0.85;
     roundRect(ctx, x, y, bw, barh, 5);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = '#c3d0d5';
+
+    if (isHovered) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = isHovered ? '#ffffff' : '#c3d0d5';
+    ctx.font = isHovered ? 'bold 11px DM Sans' : '10px DM Sans';
     ctx.fillText(money(v), x + bw / 2, Math.max(10, y - 6));
+    ctx.font = '10px DM Sans';
   });
+
+  if (!canvas._hasHoverEvents) {
+    canvas._hasHoverEvents = true;
+    canvas.addEventListener('mousemove', e => {
+      const cr = canvas.getBoundingClientRect();
+      const mx = e.clientX - cr.left;
+      const my = e.clientY - cr.top;
+      const hovered = cashflowBars.find(b => mx >= b.x && mx <= b.x + b.w && my >= b.y - 20 && my <= b.y + b.h + 10);
+      if (hovered) {
+        if (cashflowHoverIdx !== hovered.idx) {
+          cashflowHoverIdx = hovered.idx;
+          drawChart();
+        }
+        if (tip) {
+          const ratio = p.income && hovered.idx !== 0 ? ` (${((hovered.value / p.income) * 100).toFixed(1)}% da renda)` : '';
+          tip.innerHTML = `<span>${hovered.label}</span><br><b>${money(hovered.value)}</b>${ratio}`;
+          tip.style.left = `${hovered.x + hovered.w / 2}px`;
+          tip.style.top = `${hovered.y}px`;
+          tip.classList.add('visible');
+        }
+      } else if (cashflowHoverIdx !== -1) {
+        cashflowHoverIdx = -1;
+        drawChart();
+        if (tip) tip.classList.remove('visible');
+      }
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      if (cashflowHoverIdx !== -1) {
+        cashflowHoverIdx = -1;
+        drawChart();
+      }
+      if (tip) tip.classList.remove('visible');
+    });
+  }
 }
 
 function roundRect(c, x, y, w, h, r) {
@@ -320,14 +465,17 @@ function renderHealth() {
   const cashShare = (data.assets.find(a => a.name === 'Caixa')?.share) || 0.22;
   const cashReserve = data.portfolio * cashShare;
   const cashMonths = p.expenses ? cashReserve / p.expenses : null;
+  const score = calculateHealthScore();
 
   const items = [
+    ['Score de saúde', `${score}/100`, score >= 70 ? 'Excelente estabilidade' : (score >= 40 ? 'Estabilidade moderada' : 'Atenção necessária')],
     ['Taxa de economia', pct(saving), 'Após despesas e aporte'],
     ['Taxa de investimento', pct(invest), 'Aporte ÷ renda registrada'],
     ['Despesas / receitas', pct(expense), 'Despesas ÷ renda registrada'],
     ['Reserva em caixa', cashMonths == null ? 'Dados não disponíveis' : `${cashMonths.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} meses`, 'Caixa planejado ÷ despesa mensal']
   ];
   $('#health').innerHTML = items.map(i => `<div class="health-card"><small>${i[0].toUpperCase()}</small><b>${i[1]}</b><span>${i[2]}</span></div>`).join('');
+  updateHealthScoreBadge();
 }
 
 function renderPatrimonio() {
@@ -494,9 +642,14 @@ function renderRetirement() {
       <p class="chart-foot">Projeção matemática; valores reais podem variar. Não inclui mudanças futuras de aporte ou rentabilidade.</p>
     </article>`;
 
+  let projectionHoverX = null;
+  let cachedPts = [];
+
   const drawProjection = (monthly, targetAge) => {
     const canvas = $('#projectionChart');
     if (!canvas) return;
+    const wrap = canvas.closest('.chart-wrap');
+    const tip = wrap ? getOrCreateTooltip(wrap) : null;
     const ctx = canvas.getContext('2d'), rect = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
     if (!rect.width || !rect.height) return;
     canvas.width = rect.width * dpr;
@@ -512,7 +665,9 @@ function renderRetirement() {
     const years = Math.max(1, Math.min(60, age - r.age));
     const pts = Array.from({ length: years + 1 }, (_, i) => ({
       year: r.age + i,
-      value: project(r.invested, mon, r.rate, i)
+      yearsPassed: i,
+      value: project(r.invested, mon, r.rate, i),
+      totalContributed: r.invested + (mon * i * 12)
     }));
     const max = Math.max(1, pts[pts.length - 1]?.value ?? 1);
 
@@ -530,11 +685,15 @@ function renderRetirement() {
       ctx.fillText(money(max * (1 - i / 3)).replace('R$ ', ''), p.l - 6, y + 3);
     }
 
-    ctx.beginPath();
-    pts.forEach((pt, i) => {
+    cachedPts = pts.map((pt, i) => {
       const x = p.l + (w - p.l - p.r) * i / years;
       const y = h - p.b - (h - p.t - p.b) * pt.value / max;
-      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      return { ...pt, screenX: x, screenY: y };
+    });
+
+    ctx.beginPath();
+    cachedPts.forEach((pt, i) => {
+      i ? ctx.lineTo(pt.screenX, pt.screenY) : ctx.moveTo(pt.screenX, pt.screenY);
     });
     ctx.lineTo(w - p.r, h - p.b);
     ctx.lineTo(p.l, h - p.b);
@@ -547,15 +706,62 @@ function renderRetirement() {
     ctx.fill();
 
     ctx.beginPath();
-    pts.forEach((pt, i) => {
-      const x = p.l + (w - p.l - p.r) * i / years;
-      const y = h - p.b - (h - p.t - p.b) * pt.value / max;
-      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    cachedPts.forEach((pt, i) => {
+      i ? ctx.lineTo(pt.screenX, pt.screenY) : ctx.moveTo(pt.screenX, pt.screenY);
     });
     ctx.strokeStyle = '#82b9ff';
     ctx.lineWidth = 2;
     ctx.stroke();
-    canvas.title = pts.map(pt => `Idade ${pt.year}: ${money(pt.value)}`).join(' · ');
+
+    if (projectionHoverX != null) {
+      let closest = cachedPts[0];
+      let minDist = Infinity;
+      cachedPts.forEach(pt => {
+        const d = Math.abs(pt.screenX - projectionHoverX);
+        if (d < minDist) { minDist = d; closest = pt; }
+      });
+
+      if (closest) {
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.setLineDash([4, 4]);
+        ctx.moveTo(closest.screenX, p.t);
+        ctx.lineTo(closest.screenX, h - p.b);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.beginPath();
+        ctx.arc(closest.screenX, closest.screenY, 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.strokeStyle = '#6366f1';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        if (tip) {
+          tip.innerHTML = `<span>Idade: <b>${closest.year} anos</b> (${closest.yearsPassed} anos de aporte)</span><br>Patrimônio: <b>${money(closest.value)}</b><br><small style="color:var(--text-muted)">Total aportado: ${money(closest.totalContributed)}</small>`;
+          tip.style.left = `${closest.screenX}px`;
+          tip.style.top = `${closest.screenY}px`;
+          tip.classList.add('visible');
+        }
+      }
+    } else {
+      if (tip) tip.classList.remove('visible');
+    }
+
+    if (!canvas._hasHoverEvents) {
+      canvas._hasHoverEvents = true;
+      canvas.addEventListener('mousemove', e => {
+        const cr = canvas.getBoundingClientRect();
+        projectionHoverX = e.clientX - cr.left;
+        drawProjection(mon, age);
+      });
+      canvas.addEventListener('mouseleave', () => {
+        projectionHoverX = null;
+        drawProjection(mon, age);
+        if (tip) tip.classList.remove('visible');
+      });
+    }
   };
 
   redrawRetirementChart = () => drawProjection();
@@ -697,30 +903,35 @@ function pageFromHash() {
 }
 
 function csvExport() {
-  const selected = periodData();
-  const rows = [
-    ['CONTROLE FINANCEIRO JM', 'Relatório de ' + selectedMonth + '/' + selectedYear],
-    ['Receitas', selected.income],
-    ['Despesas', selected.expenses],
-    ['Investimentos', selected.contribution],
-    ['Resultado líquido', selected.income != null && selected.expenses != null ? selected.income - selected.expenses : null],
-    ['Patrimônio', data.portfolio],
-    ['Saldo Bruto', data.grossBalance],
-    ['Ganho de Capital', data.capitalGain],
-    ['Proventos Acumulados', data.dividends],
-    ['Meta', data.goal.name],
-    ['Objetivo', data.goal.target],
-    ['Acumulado', data.goal.current],
-    [],
-    ['Categoria', 'Valor'],
-    ...(selected.categoryAvailable ? data.categories : []).map(c => [c.name, c.value])
-  ];
-  const csv = '\ufeff' + rows.map(r => r.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(';')).join('\r\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  a.download = 'relatorio-controle-financeiro-jm.csv';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  try {
+    const selected = periodData();
+    const rows = [
+      ['CONTROLE FINANCEIRO JM', 'Relatório de ' + selectedMonth + '/' + selectedYear],
+      ['Receitas', selected.income],
+      ['Despesas', selected.expenses],
+      ['Investimentos', selected.contribution],
+      ['Resultado líquido', selected.income != null && selected.expenses != null ? selected.income - selected.expenses : null],
+      ['Patrimônio', data.portfolio],
+      ['Saldo Bruto', data.grossBalance],
+      ['Ganho de Capital', data.capitalGain],
+      ['Proventos Acumulados', data.dividends],
+      ['Meta', data.goal.name],
+      ['Objetivo', data.goal.target],
+      ['Acumulado', data.goal.current],
+      [],
+      ['Categoria', 'Valor'],
+      ...(selected.categoryAvailable ? data.categories : []).map(c => [c.name, c.value])
+    ];
+    const csv = '\ufeff' + rows.map(r => r.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(';')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `relatorio-controle-financeiro-jm-${selectedYear}-${String(selectedMonth).padStart(2, '0')}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    showToast('Relatório CSV exportado com sucesso!', 'success');
+  } catch (err) {
+    showToast('Erro ao exportar CSV: ' + err.message, 'error');
+  }
 }
 
 function cell(s, a) {
@@ -943,10 +1154,17 @@ $('#excelFile').onchange = async e => {
     renderAll();
     $('#uploadStatus').textContent = `Planilha carregada com sucesso · ${data.updated}`;
     $('#settingsModal').classList.remove('open');
+    showToast('Planilha sincronizada e atualizada com sucesso!', 'success');
   } catch (err) {
     $('#uploadStatus').textContent = err.message;
+    showToast(err.message, 'error');
   }
 };
+
+const searchInput = $('#txSearch');
+if (searchInput) {
+  searchInput.oninput = () => renderControl();
+}
 
 window.addEventListener('resize', () => {
   requestAnimationFrame(drawChart);
