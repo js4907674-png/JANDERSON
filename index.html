@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1118"><meta name="description" content="Painel pessoal de controle financeiro">
+  <title>CONTROLE FINANCEIRO JM</title><link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="#dashboard"><span class="brand-mark">JM</span><span><b>CONTROLE</b><small>FINANCEIRO JM</small></span></a>
+    <div class="nav-label">VISÃO GERAL</div>
+    <nav id="navigation">
+      <a class="nav-item active" href="#dashboard" data-page="dashboard"><i>◫</i>Dashboard</a>
+      <a class="nav-item" href="#patrimonio" data-page="patrimonio"><i>◈</i>Patrimônio</a>
+      <a class="nav-item" href="#investimentos" data-page="investimentos"><i>↗</i>Investimentos</a>
+      <a class="nav-item" href="#metas" data-page="metas"><i>◎</i>Metas financeiras</a>
+      <a class="nav-item" href="#aposentadoria" data-page="aposentadoria"><i>◷</i>Aposentadoria</a>
+      <a class="nav-item" href="#relatorios" data-page="relatorios"><i>▤</i>Relatórios</a>
+    </nav>
+    <div class="sidebar-bottom"><div class="secure"><span class="pulse"></span><span><b>Seus dados, sob seu controle</b><small>Processamento local no navegador</small></span></div><button class="nav-item" id="settingsBtn"><i>⚙</i>Dados e configurações</button></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><button class="mobile-menu" id="menuBtn" aria-label="Abrir menu">☰</button><div class="crumb">CONTROLE FINANCEIRO JM <span>/</span> <b id="crumbPage">Dashboard</b></div><div class="top-actions"><span class="sync-label"><span class="pulse"></span><span id="syncText">Dados da planilha</span></span><button class="avatar" title="JM">JM</button></div></header>
+    <section class="content">
+      <section class="page active" id="page-dashboard">
+        <div class="page-heading"><div><p class="eyebrow">VISÃO CONSOLIDADA</p><h1>Dashboard Financeiro</h1><p class="muted">Seu dinheiro em perspectiva. Decisões com mais clareza.</p></div><div class="filters"><label>Ano<select id="yearFilter"><option>2025</option><option>2026</option></select></label><label>Mês de análise<select id="monthFilter"></select></label><label>Categoria<select id="categoryFilter"><option value="all">Todas</option></select></label><label>Tipo<select id="typeFilter"><option value="all">Todos</option><option value="receita">Receitas</option><option value="despesa">Despesas</option><option value="investimento">Investimentos</option></select></label></div></div>
+        <div class="notice" id="dataNotice"><span class="notice-icon">i</span><span><b>Leitura da planilha:</b> os lançamentos detalhados não têm datas preenchidas. O resumo mensal abaixo segue os valores da aba Dashboard, e não representa um histórico de transações datadas.</span></div>
+        <div class="metrics" id="metrics"></div>
+        <div class="section-head"><div><p class="eyebrow">ACOMPANHE DE PERTO</p><h2>Acesso rápido</h2></div></div>
+        <div class="quick-links"><a href="#controle" data-page="controle"><span>▤</span><b>Controle original</b><small>Lançamentos e categorias</small><i>↗</i></a><a href="#patrimonio" data-page="patrimonio"><span>◈</span><b>Patrimônio</b><small>Posição e evolução</small><i>↗</i></a><a href="#metas" data-page="metas"><span>◎</span><b>Metas</b><small>Objetivos financeiros</small><i>↗</i></a><a href="#aposentadoria" data-page="aposentadoria"><span>◷</span><b>Aposentadoria</b><small>Simulador de futuro</small><i>↗</i></a><a href="#investimentos" data-page="investimentos"><span>↗</span><b>Investimentos</b><small>Alocação patrimonial</small><i>↗</i></a><a href="#relatorios" data-page="relatorios"><span>▥</span><b>Relatórios</b><small>Resumo para exportação</small><i>↗</i></a></div>
+        <div class="grid-two section-space"><article class="card chart-card"><div class="card-head"><div><p class="eyebrow">MÊS DE ANÁLISE</p><h3>Receita, despesas e aporte</h3></div><span class="tag" id="chartPeriod">Setembro · 2026</span></div><div class="chart-wrap"><canvas id="cashflowChart" aria-label="Gráfico de fluxo mensal"></canvas></div><div class="legend"><span><i class="dot green"></i>Receita</span><span><i class="dot coral"></i>Despesas</span><span><i class="dot blue"></i>Investimentos</span></div><p class="chart-foot" id="chartSource">Resumo da aba Dashboard. A coluna de datas dos lançamentos está vazia.</p></article><article class="card"><div class="card-head"><div><p class="eyebrow">DESPESAS DO MÊS</p><h3>Para onde vai seu dinheiro</h3></div><button class="subtle" data-goto="controle">Ver categorias ↗</button></div><div id="categoryChart" class="donut-layout"></div></article></div>
+        <div class="grid-two section-space"><article class="card"><div class="card-head"><div><p class="eyebrow">PLANO DE LONGO PRAZO</p><h3>Meta de patrimônio</h3></div><span class="tag">Até mai. 2029</span></div><div id="goalSummary"></div></article><article class="card"><div class="card-head"><div><p class="eyebrow">LEITURA DOS DADOS</p><h3>Alertas financeiros</h3></div><span class="status-pill">Atualizado</span></div><div id="alerts" class="alerts"></div></article></div>
+        <div class="section-head section-space"><div><p class="eyebrow">SAÚDE FINANCEIRA</p><h2>Indicadores do seu mês</h2></div></div><div class="health-grid" id="health"></div>
+      </section>
+      <section class="page" id="page-patrimonio"><div class="page-heading"><div><p class="eyebrow">VISÃO DE ATIVOS</p><h1>Patrimônio</h1><p class="muted">Sua posição patrimonial conforme a aba Patrimônio.</p></div></div><div id="patrimonioPage"></div></section>
+      <section class="page" id="page-investimentos"><div class="page-heading"><div><p class="eyebrow">CARTEIRA E APORTES</p><h1>Investimentos</h1><p class="muted">Acompanhe a alocação sem estimar valores que não estão na planilha.</p></div></div><div id="investimentosPage"></div></section>
+      <section class="page" id="page-metas"><div class="page-heading"><div><p class="eyebrow">OBJETIVOS COM PROPÓSITO</p><h1>Metas financeiras</h1><p class="muted">Progresso calculado a partir dos valores registrados na planilha.</p></div></div><div id="metasPage"></div></section>
+      <section class="page" id="page-aposentadoria"><div class="page-heading"><div><p class="eyebrow">PLANEJAMENTO DE LONGO PRAZO</p><h1>Aposentadoria</h1><p class="muted">Simule aportes com as premissas existentes na aba Aposentadoria.</p></div></div><div id="retirementPage"></div></section>
+      <section class="page" id="page-relatorios"><div class="page-heading"><div><p class="eyebrow">SÍNTESE E EXPORTAÇÃO</p><h1>Relatórios</h1><p class="muted">Gere um resumo com os dados disponíveis na fonte.</p></div><button class="btn-primary" id="exportBtn">↓ Exportar relatório CSV</button></div><div id="reportsPage"></div></section>
+      <section class="page" id="page-controle"><div class="page-heading"><div><p class="eyebrow">FONTE DE DADOS</p><h1>Controle original</h1><p class="muted">Lançamentos detalhados encontrados na planilha carregada.</p></div></div><div id="controlPage"></div></section>
+      <footer class="footer"><span>CONTROLE FINANCEIRO JM</span><span>Valores apresentados conforme a planilha carregada</span></footer>
+    </section>
+  </main>
+</div>
+<div class="modal-backdrop" id="settingsModal"><div class="modal"><button class="close" id="closeModal">×</button><p class="eyebrow">FONTE DE DADOS</p><h2>Atualize sua planilha</h2><p class="muted">Selecione uma cópia atualizada de <b>CONTROLE-FINANCEIRO JM.xlsx</b>. O arquivo é lido neste navegador e não é enviado a nenhum servidor. A planilha original permanece inalterada.</p><label class="file-drop"><span>↑</span><b>Escolher arquivo Excel</b><small>.xlsx ou .xls · processamento local</small><input type="file" id="excelFile" accept=".xlsx,.xls"></label><div id="uploadStatus" class="upload-status"></div><p class="fine-print">A atualização desta página dura enquanto a aba estiver aberta. O conjunto de dados inicial corresponde à leitura de 26/09/2026.</p></div></div>
+</body></html>

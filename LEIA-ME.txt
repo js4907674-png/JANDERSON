@@ -1,0 +1,26 @@
+CONTROLE FINANCEIRO JM — Dashboard
+
+Abra index.html em um navegador moderno. A página usa os dados da planilha CONTROLE-FINANCEIRO JM.xlsx analisada em 26/09/2026 e funciona sem servidor. A atualização de outra cópia Excel é feita por Dados e configurações > Escolher arquivo Excel. O leitor Excel é carregado de um CDN e, para essa atualização, precisa de conexão à internet. O arquivo é processado localmente no navegador e não é enviado a serviços externos.
+
+ARQUIVOS
+- index.html: estrutura e navegação do Dashboard.
+- styles.css: identidade visual responsiva.
+- app.js: indicadores, gráficos, cálculos e leitura da planilha.
+
+MAPEAMENTO DA FONTE
+- DASHBOARD: mês em C5; renda em F5; despesas em C14; aporte em C15; patrimônio em H8; categorias em E14:F22.
+- CONTROLE LANÇAMENTOS: entradas D17:D25; despesas detalhadas em G18:N47; total em K50; reserva ideal em D31. Datas por linha estão vazias no arquivo analisado. O total de renda em D25 é mensal, e despesas K50 refletem o orçamento mensal planejado.
+- PATRIMÔNIO: total consolidado em J9; aporte mensal em J10; desempenho em O5/O11; meta em A28:G28; ativos e classes em A2:B23; percentuais de alocação-alvo em J2:J6, definidos pelas legendas H16:L17. Não há saldo por ativo nem histórico patrimonial.
+- APOSENTADORIA: parâmetros H20:H24 e H30; renda passiva desejada em G35 e taxa em H35.
+
+LIMITAÇÕES IMPORTANTES DA PLANILHA
+- Os lançamentos individuais não têm datas, impedindo comparações reais por mês ou filtros temporais detalhados.
+- Totais mensais históricos estão anotados em dois períodos diferentes (receitas identificadas como 2026 e despesas como 2025), sem transações correspondentes; o relatório os mantém separados.
+- A série histórica de patrimônio, valores por ativo, proventos mensais e idade atual confiável não estão disponíveis além dos campos informados.
+- O saldo atual de R$ 0 é a fórmula de renda menos despesas previstas e aporte (R$ 1.535 − R$ 1.385 − R$ 150); não equivale a saldo bancário.
+- A simulação de aposentadoria usa as premissas gravadas na própria planilha e serve como estimativa matemática.
+
+A planilha original não é editada por este Dashboard. Para refletir alterações, carregue a cópia atualizada pelo painel de configurações.
+
+FILTROS DE PERÍODO
+O filtro de ano reúne os anos identificados nos cabeçalhos de receitas e despesas históricos e no período do Dashboard. O filtro de mês oferece janeiro a dezembro; períodos sem total registrado mostram “Dados não disponíveis”. Comparações mensais só aparecem entre valores da mesma série e origem.
