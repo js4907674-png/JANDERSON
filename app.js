@@ -98,6 +98,7 @@ function metric(icon, label, value, desc, color, comparison = 'Mês anterior: da
 }
 
 function periodData(year = Number(selectedYear), month = Number(selectedMonth)) {
+  // If viewing the budget month (typically September 2026)
   if (year === Number(data.period.slice(0, 4)) && month === Number(data.period.slice(5, 7))) {
     return {
       income: data.income,
@@ -106,31 +107,32 @@ function periodData(year = Number(selectedYear), month = Number(selectedMonth)) 
       balance: data.balance,
       categories: data.categories,
       categoryAvailable: true,
-      source: 'orçamento mensal'
+      source: 'orçamento mensal detalhado'
     };
   }
-  if (year === data.historyYears.income && month >= 1 && month <= data.history.income.length) {
-    return {
-      income: data.history.income[month - 1],
-      expenses: null,
-      contribution: null,
-      balance: null,
-      categories: [],
-      categoryAvailable: false,
-      source: 'total histórico de receitas'
-    };
+
+  // Look in the monthly history tracking table
+  if (month >= 1 && month <= 12) {
+    const mIdx = month - 1;
+    const hInc = data.history.income[mIdx];
+    const hExp = data.history.expenses[mIdx];
+
+    if (hInc != null || hExp != null) {
+      const inc = hInc ?? null;
+      const exp = hExp ?? null;
+      const bal = inc != null && exp != null ? inc - exp : (inc ?? (exp != null ? -exp : null));
+      return {
+        income: inc,
+        expenses: exp,
+        contribution: null,
+        balance: bal,
+        categories: [],
+        categoryAvailable: false,
+        source: 'histórico mensal registrado'
+      };
+    }
   }
-  if (year === data.historyYears.expenses && month >= 1 && month <= data.history.expenses.length) {
-    return {
-      income: null,
-      expenses: data.history.expenses[month - 1],
-      contribution: null,
-      balance: null,
-      categories: [],
-      categoryAvailable: false,
-      source: 'total histórico de despesas'
-    };
-  }
+
   return {
     income: null,
     expenses: null,
@@ -157,7 +159,7 @@ function comparison(current, previous, sameSource) {
 }
 
 function renderMetrics() {
-  const p = periodData(), prev = previousPeriod(), same = p.source === prev.source;
+  const p = periodData(), prev = previousPeriod(), same = !!(p.source && prev.source);
   let inc = p.income, exp = p.expenses, inv = p.contribution;
   if (selectedCategory !== 'all') exp = p.categoryAvailable ? (p.categories.find(x => x.name === selectedCategory)?.value ?? 0) : null;
   if (selectedType === 'receita') { exp = null; inv = null; }
@@ -165,20 +167,20 @@ function renderMetrics() {
   else if (selectedType === 'investimento') { inc = null; exp = null; }
 
   const result = inc != null && exp != null ? inc - exp : null;
-  const balance = result != null && inv != null ? result - inv : null;
+  const balance = result != null && inv != null ? result - inv : result;
   const saving = balance != null && inc ? balance / inc : null;
   const investRate = inc != null && inv != null && inc ? inv / inc : null;
 
   const metrics = [
     metric('◈', 'Patrimônio total', money(data.portfolio), `Última posição · ${data.updated}`, '#81e0b2'),
-    metric('◉', 'Saldo do mês', money(balance), 'Renda menos despesas e aporte', '#82b9ff', comparison(balance, prev.balance, same)),
+    metric('◉', 'Saldo do mês', money(balance), p.contribution != null ? 'Renda menos despesas e aporte' : 'Receita menos despesas', '#82b9ff', comparison(balance, prev.balance, same)),
     metric('↗', 'Receita do mês', money(inc), p.source || 'Dados não disponíveis', '#81e0b2', comparison(inc, prev.income, same)),
     metric('⌁', 'Despesas do mês', money(exp), p.source || 'Dados não disponíveis', '#ff8d83', comparison(exp, prev.expenses, same)),
-    metric('＋', 'Investimentos do mês', money(inv), p.source || 'Dados não disponíveis', '#82b9ff', comparison(inv, prev.contribution, same)),
+    metric('＋', 'Investimentos do mês', money(inv), inv != null ? 'Aporte orçado' : 'Sem aporte registrado', '#82b9ff', comparison(inv, prev.contribution, same)),
     metric('±', 'Resultado do mês', money(result), 'Receitas menos despesas', '#f2cb7c', comparison(result, prev.income != null && prev.expenses != null ? prev.income - prev.expenses : null, same)),
     metric('▥', 'Total investido', money(data.invested), `Última posição · ${data.updated}`, '#81e0b2'),
     metric('◎', 'Metas financeiras', pct(data.goal.progress), 'Meta principal · R$ 100 mil', '#82b9ff'),
-    metric('⌂', 'Taxa de economia', pct(saving), 'Após despesas e aporte', '#81e0b2'),
+    metric('⌂', 'Taxa de economia', pct(saving), 'Após despesas e aportes', '#81e0b2'),
     metric('◌', 'Taxa investida', pct(investRate), 'Aporte ÷ renda do mês', '#82b9ff')
   ];
   $('#metrics').innerHTML = metrics.join('');
@@ -189,7 +191,7 @@ const palette = ['#81e0b2', '#82b9ff', '#f2cb7c', '#ff8d83', '#bd9dfc', '#66d6cf
 function renderCategories() {
   const p = periodData();
   if (!p.categoryAvailable || selectedType === 'receita' || selectedType === 'investimento') {
-    $('#categoryChart').innerHTML = '<div class="empty">Dados não disponíveis para esta combinação de ano e mês. A planilha não traz categorias históricas mensais.</div>';
+    $('#categoryChart').innerHTML = '<div class="empty">Detalhamento por categorias disponível no mês orçado (Setembro/2026). Para os outros meses, a planilha consolidou apenas os totais históricos.</div>';
     return;
   }
   const cats = p.categories.filter(x => x.value > 0 && (selectedCategory === 'all' || x.name === selectedCategory)).sort((a, b) => b.value - a.value);
@@ -311,7 +313,7 @@ function renderAlerts() {
 
 function renderHealth() {
   const p = periodData();
-  const saving = p.income != null && p.expenses != null && p.contribution != null && p.income ? (p.income - p.expenses - p.contribution) / p.income : null;
+  const saving = p.income != null && p.expenses != null && p.income ? (p.income - p.expenses - (p.contribution || 0)) / p.income : null;
   const invest = p.income != null && p.contribution != null && p.income ? p.contribution / p.income : null;
   const expense = p.income != null && p.expenses != null && p.income ? p.expenses / p.income : null;
 
@@ -492,7 +494,7 @@ function renderRetirement() {
       <p class="chart-foot">Projeção matemática; valores reais podem variar. Não inclui mudanças futuras de aporte ou rentabilidade.</p>
     </article>`;
 
-  const drawProjection = (monthly = Number($('#simContribution')?.value ?? r.monthly), targetAge = Number($('#simAge')?.value ?? r.retireAge)) => {
+  const drawProjection = (monthly, targetAge) => {
     const canvas = $('#projectionChart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d'), rect = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
@@ -501,13 +503,18 @@ function renderRetirement() {
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
 
+    const inputContr = Number($('#simContribution')?.value);
+    const inputAge = Number($('#simAge')?.value);
+    const mon = Number.isFinite(monthly) ? monthly : (Number.isFinite(inputContr) ? inputContr : r.monthly);
+    const age = Number.isFinite(targetAge) ? targetAge : (Number.isFinite(inputAge) ? inputAge : r.retireAge);
+
     const w = rect.width, h = rect.height, p = { l: 50, r: 12, t: 14, b: 24 };
-    const years = Math.max(1, Math.min(60, targetAge - r.age));
+    const years = Math.max(1, Math.min(60, age - r.age));
     const pts = Array.from({ length: years + 1 }, (_, i) => ({
       year: r.age + i,
-      value: project(r.invested, monthly, r.rate, i)
+      value: project(r.invested, mon, r.rate, i)
     }));
-    const max = Math.max(1, pts.at(-1).value);
+    const max = Math.max(1, pts[pts.length - 1]?.value ?? 1);
 
     ctx.clearRect(0, 0, w, h);
     ctx.font = '10px DM Sans';
@@ -586,17 +593,27 @@ function renderReports() {
               ${cats.map(c => `<tr><td>${esc(c.name)}</td><td>${money(c.value)}</td><td>${p.expenses ? pct(c.value / p.expenses) : 'Dados não disponíveis'}</td></tr>`).join('')}
             </tbody>
           </table>
-        </div>` : '<div class="empty">Dados não disponíveis para categorias neste período.</div>'}
+        </div>` : '<div class="empty">Detalhamento por categoria registrado apenas para o orçamento mensal (Setembro). Nos outros meses, consulte os totais da tabela abaixo.</div>'}
     </article>
     <article class="card section-space">
       <p class="eyebrow">HISTÓRICO NA PLANILHA</p>
       <h3>Totais mensais registrados</h3>
-      <p class="muted">Receitas históricas (2026) e despesas (2025). Períodos sem preenchimento na planilha exibem "Dados não disponíveis".</p>
+      <p class="muted">Receitas e despesas extraídas da planilha de controle. Períodos sem preenchimento na planilha exibem "Dados não disponíveis".</p>
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Mês</th><th>Receita registrada · ${data.historyYears.income}</th><th>Despesa registrada · ${data.historyYears.expenses}</th></tr></thead>
+          <thead><tr><th>Mês</th><th>Receita registrada</th><th>Despesa registrada</th><th>Saldo do mês</th></tr></thead>
           <tbody>
-            ${data.history.labels.map((m, i) => `<tr><td>${m}</td><td>${money(data.history.income[i])}</td><td>${money(data.history.expenses[i])}</td></tr>`).join('')}
+            ${data.history.labels.map((m, i) => {
+              const inc = data.history.income[i];
+              const exp = data.history.expenses[i];
+              const bal = inc != null && exp != null ? inc - exp : null;
+              return `<tr>
+                <td><strong>${m}</strong></td>
+                <td>${money(inc)}</td>
+                <td>${money(exp)}</td>
+                <td style="color:${bal > 0 ? 'var(--green)' : (bal < 0 ? 'var(--coral)' : 'inherit')}">${money(bal)}</td>
+              </tr>`;
+            }).join('')}
           </tbody>
         </table>
       </div>
@@ -837,23 +854,26 @@ function parseWorkbook(file) {
 const monthLabels = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const availableYears = [...new Set([Number(data.period.slice(0, 4)), data.historyYears.income, data.historyYears.expenses])].sort((a, b) => a - b);
 
-$('#yearFilter').innerHTML = availableYears.map(y => `<option value="${y}">${y}</option>`).join('');
+$('#yearFilter').innerHTML = availableYears.map(y => `<option value="${y}" ${y === Number(selectedYear) ? 'selected' : ''}>${y}</option>`).join('');
 $('#yearFilter').value = selectedYear;
-$('#monthFilter').innerHTML = monthLabels.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+$('#monthFilter').innerHTML = monthLabels.map((m, i) => `<option value="${i + 1}" ${i + 1 === Number(selectedMonth) ? 'selected' : ''}>${m}</option>`).join('');
 $('#monthFilter').value = selectedMonth;
 
 const updatePeriod = () => {
   selectedYear = $('#yearFilter').value;
   selectedMonth = $('#monthFilter').value;
   const pd = periodData(), months = monthLabels;
-  $('#chartPeriod').textContent = `${months[Number(selectedMonth) - 1]} · ${selectedYear}`;
-  $('#chartSource').textContent = pd.source ? `Fonte: ${pd.source}. Comparações só aparecem quando há o mesmo tipo de total nos dois meses.` : 'Dados não disponíveis para este período.';
-  $('#dataNotice').innerHTML = `<span class="notice-icon">i</span><span><b>${months[Number(selectedMonth) - 1]} de ${selectedYear}:</b> ${pd.source ? `dados encontrados em ${pd.source}` : 'não há totais registrados na planilha para este período'}. Os totais de receitas e despesas estão em anos diferentes; os dados ausentes não são estimados.</span>`;
+  const mIndex = Number(selectedMonth) - 1;
+  const mName = months[mIndex] || `Mês ${selectedMonth}`;
+  $('#chartPeriod').textContent = `${mName} · ${selectedYear}`;
+  $('#chartSource').textContent = pd.source ? `Fonte: ${pd.source}.` : 'Dados não disponíveis para este período.';
+  $('#dataNotice').innerHTML = `<span class="notice-icon">i</span><span><b>${mName} de ${selectedYear}:</b> ${pd.source ? `dados encontrados em ${pd.source}` : 'não há totais registrados na planilha para este período'}.${pd.categoryAvailable ? ' Detalhamento por categoria disponível.' : ' A planilha traz os totais consolidados para este mês.'}</span>`;
   renderMetrics();
   renderCategories();
   renderAlerts();
   renderHealth();
   renderReports();
+  renderControl();
   requestAnimationFrame(drawChart);
 };
 
@@ -914,11 +934,12 @@ $('#excelFile').onchange = async e => {
     selectedMonth = String(Number(data.period.slice(5, 7)));
     selectedCategory = 'all';
     const years = [...new Set([Number(data.period.slice(0, 4)), data.historyYears.income, data.historyYears.expenses])].sort((a, b) => a - b);
-    $('#yearFilter').innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+    $('#yearFilter').innerHTML = years.map(y => `<option value="${y}" ${y === Number(selectedYear) ? 'selected' : ''}>${y}</option>`).join('');
     $('#yearFilter').value = selectedYear;
-    $('#monthFilter').innerHTML = monthLabels.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+    $('#monthFilter').innerHTML = monthLabels.map((m, i) => `<option value="${i + 1}" ${i + 1 === Number(selectedMonth) ? 'selected' : ''}>${m}</option>`).join('');
     $('#monthFilter').value = selectedMonth;
     $('#categoryFilter').innerHTML = '<option value="all">Todas</option>' + data.categories.map(c => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+    updatePeriod();
     renderAll();
     $('#uploadStatus').textContent = `Planilha carregada com sucesso · ${data.updated}`;
     $('#settingsModal').classList.remove('open');
@@ -935,4 +956,5 @@ window.addEventListener('resize', () => {
 });
 
 renderAll();
+updatePeriod();
 pageFromHash();
